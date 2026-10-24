@@ -45,7 +45,13 @@ HOOK_STRINGS = [
     b"telnet", b"telnetd", b"adbd", b"adb_", b"getty", b"/bin/sh",
     b"mount --bind", b"mount -o bind", b"rt-thread", b"tetras",
     b"camera_params.json", b"/pref/", b"VideoCc", b"_OV50H_",
+    b"Linux version", b"busybox", b"/sbin/init",
 ]
+
+
+# Magics of 3 bytes or fewer match by chance in large files; report but never
+# treat them as evidence of a filesystem.
+WEAK = {"ext2/3/4", "jffs2", "LZMA (5d00)", "gzip"}
 
 
 def find_fs(data: bytes) -> list[dict]:
@@ -56,15 +62,48 @@ def find_fs(data: bytes) -> list[dict]:
             for m in re.finditer(b"\x53\xef", data):
                 off = m.start() - 0x438
                 if off >= 0:
-                    hits.append({"fs": "ext2/3/4?", "offset": off})
+                    hits.append({"fs": "ext2/3/4", "offset": off, "weak": True})
                     if len([h for h in hits if h["fs"].startswith("ext")]) > 3:
                         break
             continue
         i = data.find(pat)
         count = data.count(pat)
         if i != -1:
-            hits.append({"fs": name, "first_offset": i, "count": count})
+            hits.append({"fs": name, "first_offset": i, "count": count,
+                         "weak": name in WEAK})
     return hits
+
+
+def gunzip_streams(data: bytes, out_dir: Path | None, cap=256 * 1024 * 1024):
+    """Validate each gzip header by actually decompressing it (read-only on the
+    source). Real streams are saved to out_dir for inspection."""
+    import zlib
+    found = []
+    start = 0
+    while True:
+        off = data.find(b"\x1f\x8b\x08", start)
+        if off == -1:
+            break
+        start = off + 3
+        try:
+            d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+            out = d.decompress(data[off:], cap)
+        except zlib.error:
+            continue
+        if len(out) < 1024:
+            continue
+        rec = {"offset": off, "decompressed_bytes": len(out),
+               "arm64_kernel": out[0x38:0x3C] == b"ARMd",
+               "has_cpio": b"070701" in out,
+               "linux_version": b"Linux version" in out}
+        if out_dir:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            fp = out_dir / f"section0_gzip_{off:08x}.bin"
+            fp.write_bytes(out)
+            rec["saved_to"] = str(fp)
+        rec["hooks"] = find_hooks(out)
+        found.append(rec)
+    return found
 
 
 def find_hooks(data: bytes) -> list[dict]:
@@ -112,7 +151,8 @@ def main() -> int:
     fs = find_fs(data)
     if fs:
         for h in fs:
-            print("  " + ", ".join(f"{k}={v}" for k, v in h.items()))
+            tag = "  (weak: chance matches likely)" if h.get("weak") else ""
+            print("  " + ", ".join(f"{k}={v}" for k, v in h.items() if k != "weak") + tag)
     else:
         print("  none found (section may be compressed or bare RTOS)")
 
@@ -125,8 +165,24 @@ def main() -> int:
     else:
         print("  NONE found. A microSD overlay hook is not evident in section 0.")
 
+    print("\n== Compressed blocks (decompressed and rescanned) ==")
+    out_dir = args.analysis_dir if args.analysis_dir else None
+    gz = gunzip_streams(data, out_dir)
+    if not gz:
+        print("  no valid gzip streams")
+    for g in gz:
+        print(f"  @0x{g['offset']:x}: {g['decompressed_bytes']:,} bytes  "
+              f"arm64_kernel={g['arm64_kernel']} cpio={g['has_cpio']} "
+              f"linux_version={g['linux_version']}")
+        if g.get("saved_to"):
+            print(f"    saved: {g['saved_to']}")
+        for h in g["hooks"]:
+            print(f"    {h['string']:<20} x{h['count']:<3} [{h['context']}]")
+        hooks = hooks + g["hooks"]
+
     print("\n== Reading ==")
-    has_fs = any(k for k in fs)
+    has_fs = any(not h.get("weak") for h in fs) or any(
+        g["arm64_kernel"] or g["has_cpio"] or g["linux_version"] for g in gz)
     has_sd = any(h["string"] in ("S99bootdone", "bootup.sh", "cv1_auto_run",
                                  "autoexec", "/tmp/SD0", "/mnt/SCAM")
                  for h in hooks)
