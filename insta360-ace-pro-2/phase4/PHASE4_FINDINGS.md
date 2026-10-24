@@ -115,3 +115,10 @@ is not signed. The remaining gate is purely whether a *reversible* delivery
 path exists. We resolve that with one more read-only scan before anything is
 ever written to the camera. **We are still at the feasibility gate. No camera
 modification is proposed.**
+
+## 8. Result of the section-0 check (resolved)
+
+The rescan found no valid compressed blocks, no Linux system, no shell and no
+microSD hook. Section 0 is a pure real-time OS image that loads looks from
+internal storage. **Route A is not available on this model.** See
+`phase5/PHASE5_REPORT.md` for the final recommendation.

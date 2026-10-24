@@ -18,6 +18,8 @@ prototyping only. No modification of the camera is performed or recommended yet.
 | `phase2/README.md` | Windows setup + how to read the results |
 | `phase3/generate_luts.py` | Generates the five `.cube` film-sim LUTs |
 | `phase3/preview.py` | Side-by-side look comparison tool |
+| `phase4/PHASE4_FINDINGS.md` | Feasibility evidence from the real firmware |
+| `phase5/PHASE5_REPORT.md` | Final recommendation and supported workflow |
 | `phase3/luts/` | The generated LUTs (load these today in app/Studio/Premiere/DaVinci) |
 
 ## Status
@@ -26,5 +28,7 @@ prototyping only. No modification of the camera is performed or recommended yet.
   firmware on Windows and run `analyze_firmware.py`** (this cloud sandbox cannot
   reach insta360.com). Send me the two JSON outputs for Phase 4.
 - Phase 3 (offline PoC): working — LUTs + preview delivered.
-- Phase 4/5 (feasibility, recovery, approval): pending Phase 2 evidence. **Stop
-  before any camera modification.**
+- Phase 4 (feasibility): done. Looks are internal colour tables; no microSD
+  hook exists on this model; firmware reflash is the only in-camera route.
+- Phase 5 (report): done. **Recommendation: do not modify the camera.** See
+  `phase5/PHASE5_REPORT.md`.
